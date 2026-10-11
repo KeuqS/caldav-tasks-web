@@ -13,7 +13,7 @@ import {
   type NewCalendar,
 } from "@spy4x/caldav"
 import { AUTH_PATHS } from "@api/auth.ts"
-import { createApp } from "../app.ts"
+import { type AppOptions, createApp } from "../app.ts"
 import { TEST_CONFIG, TEST_OWNER_PASSWORD } from "../test-config.ts"
 
 export const STATIC_ROOT = fromFileUrl(new URL("../testdata", import.meta.url))
@@ -59,6 +59,8 @@ export class FakeCalDav implements CalDavClient {
   ])
   /** When set, every call after discovery and listing fails with this. */
   failWith: CalDavError | null = null
+  /** Reading the objects of a calendar at one of these addresses fails with its error. */
+  failLists = new Map<string, CalDavError>()
   /** When set, discovery fails with this. */
   discoverFails: CalDavError | null = null
   private version = 0
@@ -84,15 +86,18 @@ export class FakeCalDav implements CalDavClient {
     return this.record(["listCalendars", String(home)], () => ok(this.calendars))
   }
   listObjects(calendar: string | URL, options: { component: string; includeCompleted?: boolean }) {
-    return this.record(["listObjects", String(calendar), options], () =>
-      ok(
+    return this.record(["listObjects", String(calendar), options], () => {
+      const error = this.failLists.get(String(calendar))
+      if (error) return { success: false as const, output: null, error }
+      return ok(
         [...this.objects]
           .filter(([url, object]) =>
             url.startsWith(String(calendar)) &&
             (options.includeCompleted || !object.data.includes("COMPLETED:"))
           )
           .map(([url, object]) => ({ url, ...object })),
-      ))
+      )
+    })
   }
   getObjects(): Promise<never> {
     throw new Error("not used by the relay")
@@ -207,9 +212,13 @@ export interface SendInit {
 }
 
 /** A fresh app with its own fake CalDAV account and a signed-in session. */
-export async function setup(): Promise<Setup> {
+export async function setup(options: AppOptions = {}): Promise<Setup> {
   const dav = new FakeCalDav()
-  const app = await createApp(TEST_CONFIG, { staticRoot: STATIC_ROOT, caldav: { client: dav } })
+  const app = await createApp(TEST_CONFIG, {
+    staticRoot: STATIC_ROOT,
+    caldav: { client: dav },
+    ...options,
+  })
   const signIn = await app.request(AUTH_PATHS.signIn, {
     method: "POST",
     headers: {
