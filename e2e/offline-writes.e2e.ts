@@ -3,6 +3,7 @@ import {
   addSeededTask,
   deleteList,
   deleteOnServer,
+  editOnServer,
   readList,
   readTask,
   retitleOnServer,
@@ -94,6 +95,82 @@ test("a task changed on the server while offline offers Keep mine, which writes 
   await expect.poll(async () => await readTask(list.taskUrl)).toContain(`SUMMARY:Mine`)
   await expect(page.getByRole(`heading`, { name: `1 change needs your choice` })).toHaveCount(0)
   await expect(page.getByRole(`button`, { name: `Mine`, exact: true })).toBeVisible()
+})
+
+test("Keep mine after an offline notes edit leaves the title another device wrote and writes the notes", async ({ page, context }) => {
+  await openList(page)
+  await context.setOffline(true)
+  await page.getByRole(`button`, { name: `Seeded errand`, exact: true }).click()
+  await page.getByTestId(`task-notes`).fill(`My notes`)
+  await page.getByTestId(`task-save`).click()
+  await expect(waiting(page, 1)).toBeVisible()
+  await retitleOnServer(list.taskUrl, `Theirs`)
+
+  await context.setOffline(false)
+
+  await expect(page.getByRole(`heading`, { name: `1 change needs your choice` })).toBeVisible()
+  await page.getByRole(`button`, { name: `Keep mine` }).click()
+
+  await expect.poll(async () => await readTask(list.taskUrl)).toContain(`DESCRIPTION:My notes`)
+  expect(await readTask(list.taskUrl)).toContain(`SUMMARY:Theirs`)
+  await expect(page.getByRole(`heading`, { name: `1 change needs your choice` })).toHaveCount(0)
+  await expect(page.getByRole(`button`, { name: `Theirs`, exact: true })).toBeVisible()
+})
+
+test("Keep mine when both changed the title writes the offline title and keeps the due date another device set", async ({ page, context }) => {
+  await openList(page)
+  await context.setOffline(true)
+  await page.getByRole(`button`, { name: `Seeded errand`, exact: true }).click()
+  await page.getByTestId(`task-title`).fill(`Mine`)
+  await page.getByTestId(`task-save`).click()
+  await expect(page.getByRole(`button`, { name: `Mine`, exact: true })).toBeVisible()
+  await editOnServer(
+    list.taskUrl,
+    (text) => text.replace(/^SUMMARY:.*$/m, `SUMMARY:Theirs\r\nDUE;VALUE=DATE:20270115`),
+  )
+
+  await context.setOffline(false)
+
+  await expect(page.getByRole(`heading`, { name: `1 change needs your choice` })).toBeVisible()
+  await page.getByRole(`button`, { name: `Keep mine` }).click()
+
+  await expect.poll(async () => await readTask(list.taskUrl)).toContain(`SUMMARY:Mine`)
+  expect(await readTask(list.taskUrl)).toContain(`DUE;VALUE=DATE:20270115`)
+  await expect(page.getByRole(`heading`, { name: `1 change needs your choice` })).toHaveCount(0)
+})
+
+test("Keep mine that cannot complete the task as changed elsewhere says why, writes nothing and leaves Use theirs", async ({ page, context }) => {
+  await openList(page)
+  await context.setOffline(true)
+  await page.getByRole(`checkbox`, { name: /Seeded errand/ }).click()
+  await expect(waiting(page, 1)).toBeVisible()
+  // Another device makes the task repeat from a start date, with no due date to move on.
+  await editOnServer(
+    list.taskUrl,
+    (text) =>
+      text.replace(
+        /^SUMMARY:.*$/m,
+        `SUMMARY:Theirs\r\nRRULE:FREQ=WEEKLY\r\nDTSTART;VALUE=DATE:20270104`,
+      ),
+  )
+
+  await context.setOffline(false)
+
+  await expect(page.getByRole(`heading`, { name: `1 change needs your choice` })).toBeVisible()
+  await page.getByRole(`button`, { name: `Keep mine` }).click()
+
+  const why =
+    `Keep mine is not possible: the task as it was changed elsewhere cannot be completed here. Use theirs, then complete it in Tasks.org.`
+  // On the card, which keeps it, and in the toast, which announces it.
+  await expect(page.locator(`[data-conflict-id]`).getByText(why)).toBeVisible()
+  await expect(page.getByRole(`alert`).filter({ hasText: why })).toBeVisible()
+  await expect(page.getByRole(`button`, { name: `Keep mine` })).toHaveCount(0)
+  expect(await readTask(list.taskUrl)).not.toContain(`STATUS:COMPLETED`)
+
+  await page.getByRole(`button`, { name: `Use theirs` }).click()
+
+  await expect(page.getByRole(`heading`, { name: `1 change needs your choice` })).toHaveCount(0)
+  await expect(page.getByRole(`button`, { name: `Theirs`, exact: true })).toBeVisible()
 })
 
 test("a task changed on the server while offline offers Use theirs, which drops the offline edit", async ({ page, context }) => {

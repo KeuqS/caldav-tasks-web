@@ -295,13 +295,25 @@ export function queuedFor(task: Task): TaskEntry | undefined {
   return entryFor(task.href, pendingEntries.value)
 }
 
-/** Queues the new text of a task (an edit, or a completion). `base` is the copy the person saw. */
+/**
+ * Queues the new text of a task (an edit, or a completion). `base` is the copy the person saw.
+ * While an earlier write of the task waits, `base` already shows that write, so the text the
+ * queue remembers as the server's stays the one the first write was made from.
+ */
 export function queueUpdate(base: Task, ics: string): Promise<Outcome<TaskSnapshot>> {
+  const waiting = queuedFor(base)
+  const baseIcs = waiting ? waiting.payload.baseIcs : base.ics
   return getOutbox().submit({
     kind: `update`,
     entityId: entityIdOf(base),
     version: versionOf(base.etag),
-    payload: { href: base.href, listHref: base.listHref, ics, baseEtag: base.etag },
+    payload: {
+      href: base.href,
+      listHref: base.listHref,
+      ics,
+      baseEtag: base.etag,
+      ...(baseIcs === undefined ? {} : { baseIcs }),
+    },
   })
 }
 
