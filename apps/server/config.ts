@@ -26,9 +26,64 @@ export const configSchema = type({
 /** The checked configuration. */
 export type Config = typeof configSchema.infer
 
+const OWNER_PASSWORD_HASH_PATTERN = /^pbkdf2-sha256\$\d+\$[^$]+\$[^$]+$/
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.hostname.length > 0 &&
+      url.username.length === 0 &&
+      url.password.length === 0
+    )
+  } catch {
+    return false
+  }
+}
+
+function isPublicUrl(value: string): boolean {
+  if (!isHttpUrl(value)) return false
+  const url = new URL(value)
+  return url.protocol === "https:" || url.hostname === "localhost"
+}
+
+type ConfigIssue = { name: string; reason: string }
+
+function configError(issues: ConfigIssue[]): ConfigError {
+  return new ConfigError(
+    issues.map(({ name }) => name),
+    issues,
+  )
+}
+
+function validateConfig(config: Config): Config {
+  const issues: ConfigIssue[] = []
+  if (!isPublicUrl(config.PUBLIC_URL)) {
+    issues.push({
+      name: "PUBLIC_URL",
+      reason: "must be an https URL, or an http URL on localhost, without embedded credentials",
+    })
+  }
+  if (!isHttpUrl(config.CALDAV_URL)) {
+    issues.push({
+      name: "CALDAV_URL",
+      reason: "must be an http(s) URL without embedded credentials",
+    })
+  }
+  if (!OWNER_PASSWORD_HASH_PATTERN.test(config.OWNER_PASSWORD_HASH)) {
+    issues.push({
+      name: "OWNER_PASSWORD_HASH",
+      reason: "must be a pbkdf2-sha256 hash in the form pbkdf2-sha256$<iterations>$<salt>$<hash>",
+    })
+  }
+  if (issues.length > 0) throw configError(issues)
+  return config
+}
+
 /** Reads and checks the environment. Throws a `ConfigError` naming every bad variable. */
 export function readConfig(reader: EnvReader = systemEnv): Config {
-  return loadConfig(configSchema, reader)
+  return validateConfig(loadConfig(configSchema, reader))
 }
 
 /**

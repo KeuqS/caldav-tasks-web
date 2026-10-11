@@ -70,6 +70,54 @@ Deno.test("refuses a PUBLIC_URL or CALDAV_URL that is not a URL", () => {
   }
 })
 
+Deno.test("refuses config URLs with a non-http scheme or embedded credentials", () => {
+  for (const name of ["PUBLIC_URL", "CALDAV_URL"]) {
+    for (const value of ["ftp://example.com", "https://user:password@example.com"]) {
+      const error = (() => {
+        try {
+          readConfig(createEnvReader({ ...TEST_CONFIG, [name]: value }))
+        } catch (error) {
+          return error
+        }
+      })()
+      expect(error).toBeInstanceOf(ConfigError)
+      expect((error as ConfigError).variables).toEqual([name])
+    }
+  }
+})
+
+Deno.test("requires PUBLIC_URL to use HTTPS outside localhost", () => {
+  const error = (() => {
+    try {
+      readConfig(createEnvReader({ ...TEST_CONFIG, PUBLIC_URL: "http://example.com" }))
+    } catch (error) {
+      return error
+    }
+  })()
+  expect(error).toBeInstanceOf(ConfigError)
+  expect((error as ConfigError).variables).toEqual(["PUBLIC_URL"])
+})
+
+Deno.test("refuses an OWNER_PASSWORD_HASH that is not in the generated format", () => {
+  for (
+    const value of [
+      "pbkdf2-sha256",
+      "pbkdf2-sha256$100000$only-three-parts",
+      "pbkdf2-sha256$100000$salt$hash$extra",
+    ]
+  ) {
+    const error = (() => {
+      try {
+        readConfig(createEnvReader({ ...TEST_CONFIG, OWNER_PASSWORD_HASH: value }))
+      } catch (error) {
+        return error
+      }
+    })()
+    expect(error).toBeInstanceOf(ConfigError)
+    expect((error as ConfigError).variables).toEqual(["OWNER_PASSWORD_HASH"])
+  }
+})
+
 /** A complete push group. The keys are placeholders: this reader checks that they are set only. */
 const PUSH = {
   VAPID_PUBLIC_KEY: "test-vapid-public-key",

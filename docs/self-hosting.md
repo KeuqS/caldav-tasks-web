@@ -34,9 +34,10 @@ of it, made with a key called the pepper.
 
 3. Give the container `AUTH_PEPPER` (the same one), `SESSION_SECRET` and `OWNER_PASSWORD_HASH`.
 
-The hash contains `$` characters. In a shell, wrap it in single quotes. In a `compose.yml`, write
-each `$` as `$$`. A hash made with one pepper does not verify under another, so changing
-`AUTH_PEPPER` locks you out until you make a new hash.
+The hash contains `$` characters. In a `.env` file loaded by Deno, wrap it in single quotes so the
+loader does not expand the hash's `$` segments. In a shell, wrap it in single quotes too. In a
+`compose.yml`, write each `$` as `$$`. A hash made with one pepper does not verify under another,
+so changing `AUTH_PEPPER` locks you out until you make a new hash.
 
 A complete `compose.yml`:
 
